@@ -53,8 +53,30 @@ func formatXml(sourcePath *string, destinationPath *string) {
 	writer := bufio.NewWriter(destinationFile)
 
 	writer.WriteString("<svclog>\r\n")
-	
+
+	indentationLevel := 0
+	currentContext := ""
+	previousContext := ""
+
+	// <html><head>foo</head><body><form><!-- a button --><input type="submit" value="Submit" /></form></body></html>
+
+	// <html>
+	//   <head>
+	//     foo
+	//   </head>
+	//   <body>
+	//     <form>
+	//       <!-- a button -->
+	//       <input type="submit" value="Submit" />
+	//     </form>
+	//   </body>
+    // </html>
+
+	var nextRune rune
+	isContextSwitch := false
+
 	for true {
+		isContextSwitch = false
 
 		rune, _, err := reader.ReadRune()
 
@@ -63,19 +85,101 @@ func formatXml(sourcePath *string, destinationPath *string) {
 		} 
 
 		check(err)
-		
-		if rune == '<' {
-			_, err = writer.WriteString("\r\n")
 
+		if (rune == '/' || rune == '!') && currentContext == "startTag" {
+			
+			nextRune, _, err = reader.ReadRune()
+
+			if (err == io.EOF) {
+				break
+			}
+
+			// Adjust when identifying that what looked like a start tag
+			// was actually a self closing tag or a comment (which we can label as an end tag)
+			if (rune == '/' && nextRune == '>') || (rune == '!' && nextRune == '-') {
+				currentContext = "endTag"
+			}
+
+			reader.UnreadRune()
+			
+		} else if rune == '>' {
+			previousContext = currentContext
+			currentContext = ""
+		} else if rune == '<' {
+
+			nextRune, _, err = reader.ReadRune()
+
+			if (err == io.EOF) {
+				break
+			}
+
+			if currentContext != "" {
+				previousContext = currentContext				
+			}
+
+
+			if nextRune == '/' {
+				currentContext = "endTag"
+			} else {
+				currentContext = "startTag"
+			}
+
+			isContextSwitch = true
+
+			reader.UnreadRune()
+
+		} else if currentContext == "" {
+			currentContext = "content"
+			isContextSwitch = true
+		}
+		
+		if isContextSwitch {
+
+			// star+start => newline + indent++
+			// start+alpha => newline + indent++
+			// alpha + end => newline + indent--
+			// end + end >= newline + indent--
+			// end + start => newline
+
+			_, err = writer.WriteString("\r\n")
+			check(err)
+
+			if previousContext == "startTag" && currentContext == "startTag" {
+				indentationLevel += 1
+			} else if previousContext == "startTag" && currentContext == "content" {
+				indentationLevel += 1
+			} else if previousContext == "content" && currentContext == "endTag" {
+				indentationLevel -= 1
+			} else if previousContext == "endTag" && currentContext == "endTag" {
+				indentationLevel -= 1
+			} else if previousContext == "endTag" && currentContext == "startTag" {
+				// No indent change
+			}
+
+			//fmt.Printf("%v - %v\n", previousContext, currentContext)
+
+			// Write indentation (tabs)
+			_, err = writeString(writer, "", indentationLevel)
 			check(err)
 		}
 
-		_, err = writer.WriteRune(rune)
+		_, err = writer.WriteRune(rune)			
 	}
 
-	writer.WriteString("\r\n</svclog>")
+	writeString(writer, "\r\n</svclog>", indentationLevel)
 
 	writer.Flush()
 
 	check(err)	
+}
+
+func writeString(writer *bufio.Writer, s string, indentationLevel int) (int, error) {
+	writeIndentation(writer, indentationLevel)
+	return writer.WriteString(s)
+}
+
+func writeIndentation(writer *bufio.Writer, indentationLevel int) {
+	for i := 0; i < indentationLevel; i++ {
+		writer.WriteString("\t")
+	}	
 }
