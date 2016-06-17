@@ -103,28 +103,9 @@ func FormatXml(sourcePath *string, destinationPath *string) {
 		}
 		
 		if isContextSwitch {
+			indentationLevel += indentationLevelDelta(previousContext, currentContext)
 
-			// star+start => newline + indent++
-			// start+alpha => newline + indent++
-			// alpha + end => newline + indent--
-			// end + end >= newline + indent--
-			// end + start => newline
-
-			_, err = writer.WriteString("\r\n")
-			common.Check(err)
-
-			if previousContext == "startTag" && currentContext == "startTag" {
-				indentationLevel += 1
-			} else if previousContext == "startTag" && currentContext == "content" {
-				indentationLevel += 1
-			} else if previousContext == "content" && currentContext == "endTag" {
-				indentationLevel -= 1
-			} else if previousContext == "endTag" && currentContext == "endTag" {
-				indentationLevel -= 1
-			} else if previousContext == "endTag" && currentContext == "startTag" {
-				// No indent change
-			}
-
+			writeString(writer, "\r\n")
 			writeIndentation(writer, indentationLevel)
 		}
 
@@ -134,6 +115,28 @@ func FormatXml(sourcePath *string, destinationPath *string) {
 	writeString(writer, "\r\n</svclog>")
 
 	writer.Flush()
+}
+
+func indentationLevelDelta(previousContext string, currentContext string) (indentationLevelDelta int) {
+	// star+start => newline + indent++
+	// start+alpha => newline + indent++
+	// alpha + end => newline + indent--
+	// end + end >= newline + indent--
+	// end + start => newline
+
+	if previousContext == "startTag" && currentContext == "startTag" {
+		indentationLevelDelta = 1
+	} else if previousContext == "startTag" && currentContext == "content" {
+		indentationLevelDelta = 1
+	} else if previousContext == "content" && currentContext == "endTag" {
+		indentationLevelDelta = -1
+	} else if previousContext == "endTag" && currentContext == "endTag" {
+		indentationLevelDelta = -1
+	} else if previousContext == "endTag" && currentContext == "startTag" {
+		// No indent change
+	}
+
+	return indentationLevelDelta
 }
 
 func writeString(writer *bufio.Writer, s string) {
