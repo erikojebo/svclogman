@@ -33,17 +33,14 @@ func FormatXml(sourcePath *string, destinationPath *string) {
 	reader := bufio.NewReader(sourceFile)
 	writer := bufio.NewWriter(destinationFile)
 
-	writer.WriteString("<svclog>\r\n")
+	writeString(writer, "<svclog>\r\n")
 
 	indentationLevel := 0
 	currentContext := ""
 	previousContext := ""
-
-	var nextRune rune
-	isContextSwitch := false
+	var isContextSwitch bool
 
 	for true {
-		isContextSwitch = false
 
 		rune, _, err := reader.ReadRune()
 
@@ -53,55 +50,9 @@ func FormatXml(sourcePath *string, destinationPath *string) {
 
 		common.Check(err)
 
-		if (rune == '/' || rune == '!') && currentContext == "startTag" {
-			
-			nextRune, _, err = reader.ReadRune()
+		previousContext, currentContext, isContextSwitch, err = 
+			determineContext(reader, rune, previousContext, currentContext)
 
-			if (err == io.EOF) {
-				break
-			}
-
-			common.Check(err)
-
-			// Adjust when identifying that what looked like a start tag
-			// was actually a self closing tag or a comment (which we can label as an end tag)
-			if (rune == '/' && nextRune == '>') || (rune == '!' && nextRune == '-') {
-				currentContext = "endTag"
-			}
-
-			reader.UnreadRune()
-			
-		} else if rune == '>' {
-			previousContext = currentContext
-			currentContext = ""
-		} else if rune == '<' {
-
-			nextRune, _, err = reader.ReadRune()
-
-			if (err == io.EOF) {
-				break
-			}
-
-			if currentContext != "" {
-				previousContext = currentContext				
-			}
-
-
-			if nextRune == '/' {
-				currentContext = "endTag"
-			} else {
-				currentContext = "startTag"
-			}
-
-			isContextSwitch = true
-
-			reader.UnreadRune()
-
-		} else if currentContext == "" {
-			currentContext = "content"
-			isContextSwitch = true
-		}
-		
 		if isContextSwitch {
 			indentationLevel += indentationLevelDelta(previousContext, currentContext)
 
@@ -115,6 +66,65 @@ func FormatXml(sourcePath *string, destinationPath *string) {
 	writeString(writer, "\r\n</svclog>")
 
 	writer.Flush()
+}
+
+func determineContext(reader *bufio.Reader, rune rune, previousContext string, currentContext string) (
+	updatedPreviousContext string, updatedCurrentContext string, isContextSwitch bool, err error) {
+
+	isContextSwitch = false
+	updatedCurrentContext = currentContext
+	updatedPreviousContext = previousContext
+
+	if (rune == '/' || rune == '!') && currentContext == "startTag" {
+		
+		nextRune, _, err := reader.ReadRune()
+
+		if (err == io.EOF) {
+			return previousContext, currentContext, false, err			
+		}
+
+		common.Check(err)
+
+		// Adjust when identifying that what looked like a start tag
+		// was actually a self closing tag or a comment (which we can label as an end tag)
+		if (rune == '/' && nextRune == '>') || (rune == '!' && nextRune == '-') {
+			updatedCurrentContext = "endTag"
+		}
+
+		reader.UnreadRune()
+		
+	} else if rune == '>' {
+		updatedPreviousContext = currentContext
+		updatedCurrentContext = ""
+	} else if rune == '<' {
+
+		nextRune, _, err := reader.ReadRune()
+
+		if (err == io.EOF) {
+			return previousContext, currentContext, false, err
+		}
+
+		if currentContext != "" {
+			updatedPreviousContext = currentContext				
+		}
+
+
+		if nextRune == '/' {
+			updatedCurrentContext = "endTag"
+		} else {
+			updatedCurrentContext = "startTag"
+		}
+
+		isContextSwitch = true
+
+		reader.UnreadRune()
+
+	} else if currentContext == "" {
+		updatedCurrentContext = "content"
+		isContextSwitch = true
+	}
+
+	return updatedPreviousContext, updatedCurrentContext, isContextSwitch, err
 }
 
 func indentationLevelDelta(previousContext string, currentContext string) (indentationLevelDelta int) {
